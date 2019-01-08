@@ -1,0 +1,377 @@
+---
+title: "Final Project"
+author: "Thomas Kwok, Yanli Liu"
+date: "November 20, 2018"
+output: word_document
+---
+
+```{r}
+setwd("C:/Users/thoma/Desktop/Wine Project/transformed")
+train_data <- read.csv(file="train_data.csv", head=TRUE, sep=",")
+test_data <- read.csv(file="test_data.csv", head=TRUE, sep=",")
+```
+
+------------------------------------------
+Introduction:
+------------------------------------------
+
+Wine, many people drink it and all have their own rating system for it. It has been a hot topic studied for ages now, as people try to find what is the best conditions and formulations to make the best wine. It is a hot industry that generates a lot of revenue, with many successful vineyards around the world. The study of this research paper is on wine, and in this research, we observed twelve predictors to see how they relate to quality. There were approximately 6500 samples taken and 6500 different qualities listed. The specific data we had to work with was approximately 4600 samples with their own qualities assigned, and the remaining 1900 was unknown. Our hope was to create a model that could sufficiently predict the quality of wine.
+
+From our data, we noticed that the first category was wine type; with a majority being white wine. This is particularly interesting because the process of making white wine and red wine do differ, which could mean that the formulation to make a good white wine may not be the same for red wine. The quality of the wine was also broken down into a scale from 1-10, with one being the worst and ten being the best. This was interesting because judging wine as good, bad, or average was already difficult; but to give it a numeric score? This could lead to even more variability.
+
+According to many sources, the five fundamental traits of wine are sweetness, acidity, tannin, alcohol content, and body. This led us to first look at the acidities, sugar residual, and alcohol predictors in our data as those closely related to these fundamental traits. Our goal was to find the best method for predicting wine quality from the dataset. Our goal in this data was to find the best model that produces the highest accuracy and least error for predicting wine quality, if this model also let us know the predictors most correlated then it would be a win-win, but the main study was on the model and not as much on specific predictors.
+
+------------------------------------------
+Description of Data
+------------------------------------------
+
+The first thing we did with our data was run a summary of the training data we had. This gave us a minimum, maximum, median, mean, and first and third quadrant breakdown for each of the thirteen predictors. From this, we found out that the train data was approximately 76% white and 24% red. The quality of wine also ranged from a minimum of three to a maximum of nine, but most were graded around the median of six. We also noticed that some categories had a huge difference between the values: for example sulfur dioxide predictors had the minimum and maximum differ by more than a hundred. Others had a much smaller range, like acid, which means that scaling will be needed. Initially, we paid particular attention to the acidity categories (fixed, volatile, and citric), residual sugar, and alcohol, as those were the ones that most closely related to the fundamental traits of wine.
+
+```{r}
+library(rpart)
+library(rpart.plot)
+library(tidyverse)
+library(kernlab)
+library(caret)
+library(gridExtra)
+library(pander)
+library(glmnet)
+library(randomForest)
+
+wine <- train_data
+summary(wine)
+
+```
+
+The first thing we did was to make a visual representation of the data, in terms of histograms. We first looked at residual sugar level between the red and white wine, and then all the wine. From that, we saw that both red and white wine had a right tail skew, and the overall data had a right tail skew also. One thing to note though is that the x-value scale wasn't the same for each breakdown, though that is likely more to do with the fact that the outlier 65.8 residual sugar is part of the white wine so its x-values were more spread out.
+
+```{r}
+p1 <- ggplot(aes(x=residual.sugar), data = subset(wine, wine_type %in% c("red")))+geom_histogram(color = I('black'), fill = I('green'))+ggtitle('Red Wine Sugar')
+p2 <- ggplot(aes(x=residual.sugar), data = subset(wine, wine_type %in% c("white")))+geom_histogram(color = I('black'), fill = I('green'))+ggtitle('White Wine Sugar')
+p3 <- ggplot(data=wine, aes(x=residual.sugar))+geom_histogram(color='black', fill=I('green'))+ggtitle('Wine Sugar')
+grid.arrange(p1, p2, p3, ncol=3)  
+```
+
+The next thing studied was the breakdown in difference in the acid predictors between red and white wine, and total wine acidity. The fixed acidity for red and white seemed to be about the same and the volatile data for both showed somewhat of a right tail skewness. Citric Acid between the two was very different though, which was interesting. When looking at all the wines, most of the data supported the white wine data, though that is likely because the majority of the data were white wine.
+
+```{r}
+p4 <- ggplot(aes(x=fixed.acidity), data = subset(wine, wine_type %in% c("red")))+geom_histogram(color = I('black'), fill = I('blue'))+ggtitle('Red Fixed Acidity')
+p5 <- ggplot(aes(x=volatile.acidity), data = subset(wine, wine_type %in% c("red")))+geom_histogram(color = I('black'), fill = I('blue'))+ggtitle('Red Volatile Acidity')
+p6 <- ggplot(aes(x=citric.acid), data = subset(wine, wine_type %in% c("red")))+geom_histogram(color = I('black'), fill = I('blue'))+ggtitle('Red Citric Acid')
+p7 <- ggplot(aes(x=fixed.acidity), data = subset(wine, wine_type %in% c("white")))+geom_histogram(color = I('black'), fill = I('blue'))+ggtitle('White Fixed Acidity')
+p8 <- ggplot(aes(x=volatile.acidity), data = subset(wine, wine_type %in% c("white")))+geom_histogram(color = I('black'), fill = I('blue'))+ggtitle('White Volatile Acidity')
+p9 <- ggplot(aes(x=citric.acid), data = subset(wine, wine_type %in% c("white")))+geom_histogram(color = I('black'), fill = I('blue'))+ggtitle('White Citric Acid')
+
+grid.arrange(p4, p5, p6, p7, p8, p9, ncol=3)
+```
+```{r}
+p10 <- ggplot(data = wine, aes(x = fixed.acidity)) +
+  geom_histogram(color = 'black',fill = I('blue'))+ggtitle('Wine Fixed Acidity')
+p11 <- ggplot(data = wine, aes(x = volatile.acidity))+geom_histogram(color='black', fill=I('blue'))+ggtitle('Wine Volatile Acidity')
+p12 <- ggplot(data=wine, aes(x=citric.acid))+geom_histogram(color='black', fill=I('blue'))+ggtitle('Wine Citric Acid')
+grid.arrange(p10, p11, p12, ncol=3)
+```
+
+Next we ran a histogram of alcohol content between the red and white and all the wine, most of the wine fell between the nine to twelve percent alcohol content, with many of the red below ten percent alcohol content and white wine either below ten percent or between ten and twelve percent. When looking at all wines, most fell below ten percent like the red wine. 
+
+```{r}
+p13 <- ggplot(aes(x=alcohol), data = subset(wine, wine_type %in% c("red")))+geom_histogram(color = I('black'), fill = I('purple'))+ggtitle('Alcohol content Red')
+p14 <- ggplot(aes(x=alcohol), data = subset(wine, wine_type %in% c("white")))+geom_histogram(color = I('black'), fill = I('purple'))+ggtitle('Alcohol content White')
+p15 <- ggplot(data = wine, aes(x = alcohol)) +
+  geom_histogram(color = 'black',fill = I('purple'))+ggtitle('Alcohol content Wine')
+grid.arrange(p13, p14, p15, ncol=3)  
+```
+
+Lastly we ran a bar graph on overall wine quality and this was when the data became interesting. Most data fell either in the five or six range. There were few rated at three or nine, and four and eight were also relatively low. The graph as a whole looked like a normal curve, with the majority falling between five, six, and seven. This made us consider doing some classification of wine later, to look at the quality as a bad, average, and good wine breakdown. 
+```{r}
+ggplot(data = wine, aes(x = quality)) +
+  geom_bar(color = 'black',fill = I('dark green'))+ggtitle('Wine Quality')
+```
+
+```{r}
+table(wine$quality)
+```
+
+Lastly, we ran a correlation plot and matrix of the wine to see which predictors were positively and negatively correlated with one another, and which ones were correlated with the quality. We wanted to see if residual sugar, fixed acidity, volatile acidity, citric acid, and alcohol content actually had any correlation with quality. From our result, we found that alcohol had the most correlation to quality;  a positive correlation meaning that the higher the alcohol content, the better the wine. One thing to note from the data was that the ones with the most correlation to quality was volatile acidity, chlorides, density, and alcohol. Though, the former three have a negative correlation with quality and the latter has a positive correlation. But this plot and table led to a model we ran often later.
+```{r}
+pairs(wine)
+```
+
+```{r}
+wine_numeric <- cor(
+  wine %>%
+    dplyr::select(-wine_type)
+)
+emphasize.strong.cells(which(abs(wine_numeric) > .3 & wine_numeric != 1, arr.ind = TRUE))
+pandoc.table(wine_numeric)
+```
+
+------------------------------------------
+Methods and Results:
+------------------------------------------
+                                
+It should be noted that before we ran any model, we took a look at the data and found there were two null values for total sulfur dioxide. In order to make all data relevant, we decided to fill in those values by making them the average of sulfur dioxide. This could have impacted the data in some way, but with over 4600 points, we felt that this would only lead to a small error.
+
+The first model we ran on our data was a linear regression model, which tested the quality against all predictors. The R-squared measurement, which measures how close the model fits a linear line was 0.2891. This meant that only 28.91% of the data could be explained with a linear line. The residual standard error is 0.7365 and the F-statistic was low.
+
+After that, we ran a step function to see how the values individually impacted quality. The result we saw was that alcohol was the best predictor, followed by volatile.acidity, sulphates, residual sugar, and then wine type. An interesting note is that citric acid is the only predictor to not effect the data at all in the end. This differed from the correlation matrix we ran earlier, which means that the correlation matrix likely had some multicollinearity.
+
+```{r}
+stepfunction <- step(lm(quality ~ 1, wine), scope=list(lower=~1, upper = ~wine_type+fixed.acidity+volatile.acidity+citric.acid+residual.sugar+chlorides+free.sulfur.dioxide+total.sulfur.dioxide+density+pH+sulphates+alcohol), direction = "forward")
+summary(stepfunction)
+```
+
+Next, we ran individual linear models to further break down the data. The first linear model looked at quality and alcohol alone, since alcohol had the biggest correlation to quality. The second compared quality to the predictors that had a positive correlation from our matrix, the third tested quality against the predictions that had the biggest correlation regardless of sign in the matrix, and the fourth tested quality against the first four predictors from the step function data. Alcohol alone had an R-squared of 0.18, while the positive correlants increased the R-square to 0.21. The third model increased the R-square again to 0.258, while the step function predictors increased had the highest R-square at 0.27. None of the data increased the R-square greater than the first linear model with all the predictors, but that makes sense as there was no penalty for using more predictors.
+
+```{r}
+lm1 <- lm(quality ~ alcohol, data = wine)
+lm2 <- lm(quality ~ alcohol+sulphates+pH+free.sulfur.dioxide+citric.acid, data=wine)
+lm3 <- lm(quality ~ alcohol+volatile.acidity+density+chlorides, data=wine)
+lm4 <- lm(quality ~ alcohol+volatile.acidity+sulphates+residual.sugar, data=wine)
+summary(lm1)
+summary(lm2)
+summary(lm3)
+summary(lm4)
+```
+
+Next, we split the data into training and testing dataset. We created a partition of our data, with seventy percent training and thirty percent testing. This meant that 3184 observations were known and used to determine quality for the other 1363 observations. Then we compared our predicted quality to the actual quality from this testing sample. We first ran this method on repeated cross validation using K-Nearest Neighbors. From this result we found that the best result came at K = 15. This had an R-square of 0.35, which was higher than our linear model.
+
+```{r}
+set.seed(1234)
+
+sample <- createDataPartition(wine$quality,
+                                p = 0.7,
+                                list = FALSE)
+training <- wine[ sample ,]
+testing <- wine[ -sample, ]
+
+trctrl <- trainControl(method = "repeatedcv", number = 10)
+knn_fit <- train(quality ~., data = training, method = "knn", trControl=trctrl, preProcess = c("center", "scale"), tuneLength = 10)
+knn_fit
+```
+
+From here, we plotted the KNN fit, to show the K Neighbors and mean square error relation. Interestingly, K= 13 was closer to the lowest KNN than k=17. We also made a conscious decision here to keep seed the same even though changing that value could have possibly led to better accuracy. We also kept the tuning parameter as 10 instead of changing that.
+
+```{r}
+ggplot(knn_fit, xlabs = 'K Neighbors', ylab='Accuracy')
+```
+
+Next we wanted to run a confusion matrix to see how our model performed, but we ran into an issue of a nonsquare matrix. Our model only showed three predictor quality, 5, 6, and 7, while the actual data had seven. Thus instead of running the confusion matrix function, we manually calculated our accuracy by taking the correct predictions and dividing by the total qualities. Our KNN model had an accurate of 54% in predicting the quality of wine.
+
+We then took our model and ran it against the test data for R-square and Mean Square Error, and this showed that the R-square was 0.24, which is lower than our prior two models' R-square, and a Mean Square Error higher than the other two models also. 
+```{r}
+r2_pred <- predict(knn_fit, newdata = testing)
+r2_predround <- round(r2_pred)
+r2_knn <- R2(r2_predround, testing$quality)
+r2_mse <- RMSE(r2_predround, testing$quality)
+
+r2_knn
+r2_mse
+
+table(r2_predround, testing$quality)
+(244+421+76)/(1363)
+```
+
+Next, we ran a SVM, or Support Vector Machines model, to see how it compared to our KNN. Here we used the same training and testing data, and set a tuning length of 10. Here we got a 64.4% accuracy model and an R-square of ~0.42 and Mean Square Error of 0.68.
+
+```{r}
+set.seed(1234)
+SVM_1 <- train(quality ~.,
+                  data = wine,
+                method = "svmRadial", 
+                tuneLength = 10,
+                trControl = trctrl)
+
+SVM_pred <- predict(SVM_1, newdata = testing)
+svm_predround <- round(SVM_pred, digits=0)
+r2_svm <- R2(svm_predround, testing$quality)
+rmse_svm <- RMSE(svm_predround, testing$quality)
+
+r2_svm
+rmse_svm
+
+table(svm_predround, testing$quality)
+(3+324+467+84)/(1363)
+```
+
+After that, we decided to run some classification analysis, first by breaking the wine into good, bad, and average. Our grading scale here was anything less than 5 in quality was considered bad, anything above five but below seven was average, and seven and above good. We created a separate data set called wines for classification models, mainly because the original kept breaking when we would try it for linear models after.
+
+From the breakdown, we saw that 3490 of the training wine was considered average (between 5 and 6), 163 was bad (3 and 4), and 894 was good (7, 8, 9). When we ran the model, we found out that the best KNN was at k=23 which gave a 79.4% accuracy. When we ran a Confusion Matrix against our test data, we got a 78.9% accuracy for prediction. Though one notable thing about the prediction was that the model struggled in predicting bad and good wine, but the accuracy was high for average wines.
+
+```{r}
+wines <- wine
+wines$qualitynum = wines$quality
+wines$quality[which(wines$quality %in% c(3,4))] = 'bad'
+wines$quality[which(wines$quality %in% c(5, 6))] = 'average'
+wines$quality[which(wines$quality %in% c(7,8,9))] = 'good'
+table(wines$quality)
+
+set.seed(1234)
+train.set <- createDataPartition(wines$quality, p=0.7, list= FALSE)
+exclude <- which(names(wines) %in% c('wine_type', 'qualitynum'))
+train <- wines[train.set, -exclude]
+test <- wines[-train.set, -exclude]
+
+ctrl <- trainControl(method= "repeatedcv", repeats=10, classProbs=TRUE)
+
+knn.mod <- train(quality ~., data = train, method = 'knn', preProcess = c("center", "scale"), metric = "Accuracy", trControl=ctrl, tuneLength = 10)
+
+knn.mod
+test_pred <- predict(knn.mod, newdata = test)
+confusionMatrix(table(test_pred, test$quality))
+```
+ 
+Next we ran a tree model on the wine data to visually see which predictors impacted quality and in what way. No surprise at all, alcohol would have the biggest impact for quality, with branches at less than 11% and greater than or equal to 11%. Volatile acidity also had a big impact, which seem to also impact alcohol content and quality. Most wine predicted from the tree fell between five and seven in the grading scale.
+
+```{r}
+set.seed(1234)
+
+tree <- rpart(wine$quality ~ ., data = wine)
+prp(tree, type=3, tweak=1, main="Quality of Wine", compress=TRUE )
+```
+
+Using the tree model, we wanted to run a prediction to see how the data could compare to our testing data from our train_data sample. In this, we saw that the wine could only predict quality at 5, 6, or 7, and gave an accuracy of 52% after rounding.
+
+```{r}
+tree_model<-rpart(training$quality~., data=training)
+tree_pred<-predict(tree_model, testing)
+round_tree <- round(tree_pred)
+table(round_tree, testing$quality)
+
+(225+424+67)/(1363)
+```
+
+Next, we ran a random forest with 500 trees and scaling, which predicted scores of five to eight, and an accuracy of approximately 66%.
+
+```{r}
+set.seed(1234)
+rf <- randomForest(quality ~ ., data=training, ntree = 500, scale=TRUE)
+pred <- predict(rf, newdata = testing)
+roundpred <- round(pred)
+table(roundpred, testing$quality)
+
+(297+488+109+5)/(1363)
+
+```
+
+Lastly, we decided to run ridge regression analysis. Here we needed to create another partition because we were getting error message from the other two data. Our data was 70% training and 30% testing and we looked at the predictors 2 to 12, skipping wine_type as it was a classification. We ran a multinomial test and again the prediction only could account for wine quality of 5, 6, and 7. Our accuracy from the ridge regression analysis was 56.2%.
+
+```{r}
+ridge_wine <- train_data
+set.seed(1234)
+ridge_size <- ceiling(nrow(ridge_wine)*.3)
+Ind_test <- sample(c(1:nrow(ridge_wine)),size=ridge_size,replace=FALSE)
+Ind_train <- setdiff(c(1:nrow(ridge_wine)),Ind_test)
+ridge_train <- ridge_wine[Ind_train,]
+ridge_test <- ridge_wine[Ind_test,]
+
+ridge_CV <- cv.glmnet(x=as.matrix(ridge_train[,c(2:12)]),y=ridge_train[,13],family='multinomial',alpha=0)
+plot(ridge_CV)
+```
+```{r}
+ridge_predict <- as.numeric(predict.cv.glmnet(ridge_CV,as.matrix(ridge_test[,c(2:12)]),s='lambda.min',type='class'))
+table(ridge_predict,ridge_test$quality)
+
+(298+441+28)/(1365)
+```
+
+Next we ran a poisson family ridge regression, and got an accuracy of 55%. 
+
+```{r}
+poisson_ridge <- cv.glmnet(x=as.matrix(ridge_train[,c(2:12)]),y=ridge_train[,13],family='poisson',alpha=0)
+plot(poisson_ridge)
+```
+```{r}
+poisson_ridge_pred <- as.numeric(predict.cv.glmnet(poisson_ridge,as.matrix(ridge_test[,c(2:12)]),s='lambda.min',type='response'))
+roundpoisson <- round(poisson_ridge_pred)
+table(roundpoisson,ridge_test$quality)
+
+(0+249+464+38)/(1365)
+```
+                              
+------------------------------------------
+Discussion:
+------------------------------------------
+                                
+From that, we had concluded our modeling and found out that linear regression performed the worst on the data, and that classification models performed better than regression models. The reason for this could be that classification models grouped the quality into three categories as opposed to seven, so the prediction data just needed to be within the range to be considered accurate as opposed to getting the exactly quality number. 
+
+For regression, our best model was random forest, which had an accuracy of approximately 66%. Random Forest did a very solid job at predicting average wine between the scores of five and six, but not at predicting wine in outside those numbers.
+
+```{r}
+set.seed(1234)
+rf <- randomForest(quality ~ ., data=training, ntree = 500, scale=TRUE)
+pred <- predict(rf, newdata = testing)
+roundpred <- round(pred)
+table(roundpred, testing$quality)
+
+(297+488+109+5)/(1363)
+```
+
+If we ran classification analysis using KNN, we found that the best accuracy came with K = 23 and this gave a 79% accuracy of wine prediction. In this case the data was unable to predict bad wine at all, similar to the random forest for regression analysis, and it predicted more good wine as average than as good. Both models were successful at predicting "average" wine, not good or bad wine.
+
+```{r}
+wines <- wine
+wines$qualitynum = wines$quality
+wines$quality[which(wines$quality %in% c(3,4))] = 'bad'
+wines$quality[which(wines$quality %in% c(5, 6))] = 'average'
+wines$quality[which(wines$quality %in% c(7,8,9))] = 'good'
+
+set.seed(1234)
+train.set <- createDataPartition(wines$quality, p=0.7, list= FALSE)
+exclude <- which(names(wines) %in% c('wine_type', 'qualitynum'))
+train <- wines[train.set, -exclude]
+test <- wines[-train.set, -exclude]
+
+ctrl <- trainControl(method= "repeatedcv", repeats=10, classProbs=TRUE)
+
+knn.mod <- train(quality ~., data = train, method = 'knn', preProcess = c("center", "scale"), metric = "Accuracy", trControl=ctrl, tuneLength = 10)
+
+test_pred <- predict(knn.mod, newdata = test)
+confusionMatrix(table(test_pred, test$quality))
+```
+
+In the end, it should be noted that the models that performed best used clustering, which could be explained by looking at the training data to begin with, since most fell within the five and six range. From our initial prediction, we found the model supported by alcohol and volatile acidity had a big impact on quality, although residual sugar, fixed acidity, and especially citric acid weren't impactful 
+
+In the future, a few things could be done to improve our result. The first would be to break the wine into red and white, as the two wines are made differently, so studying them individually as opposed to combined could have given more accurate predictions. The models we used to predict good red wine may not give good white wine. Another improvement could be to use a different study variable instead of quality, one that was more quantifiable. Quality is very suggestive and changes from person to person; a quality 5 wine for one person could be a quality 6 wine for another person, or even a quality 4 for a third person. In the future if we looked at alcohol percentage for example as our y-variable, we may be able to better predict.
+
+Lastly, we added the prediction table to the test data with unknown quality below, with both regression and classification. From our model, we predict that most of the unknown are average wine between five and six in quality, and few fall within the seven and eight range.
+
+```{r}
+tests <- test_data
+tests$id = NULL
+quality <- predict(knn.mod, newdata = tests)
+classification_tests <- cbind(test_data, quality)
+table(classification_tests$quality)
+write.csv(classification_tests,file = file.choose(new = T))
+
+pred <- predict(rf, newdata = tests)
+quality <- round(pred)
+regression_test <- cbind(test_data, quality)
+table(regression_test$quality)
+write.csv(regression_test, file= file.choose(new = T))
+```
+
+------------------------------------------
+Sources:
+------------------------------------------
+
+https://winefolly.com/review/wine-characteristics/
+https://vincarta.com/blog/assessing-quality/
+http://rstudio-pubs-static.s3.amazonaws.com/24803_abbae17a5e154b259f6f9225da6dade0.html
+http://rpubs.com/beka/red-wine_data-analysis
+https://rpubs.com/datascientiest/237405
+https://www.kaggle.com/sagarnildass/red-wine-analysis-by-r
+https://rstudio-pubs-static.s3.amazonaws.com/33876_1d7794d9a86647ca90c4f182df93f0e8.html
+https://www.r-bloggers.com/predicting-wine-quality-using-random-forests/
+https://www.researchgate.net/publication/324870033_Comparing_Linear_Ridge_and_Lasso_Regressions
+http://rstudio-pubs-static.s3.amazonaws.com/299637_2ba434e6967240c8b8da4511cb42318f.html
+https://www.kaggle.com/ssudeep/red-wine-quality-prediction-using-ridge-regression
+https://rpubs.com/jeknov/redwine
+http://rstudio-pubs-static.s3.amazonaws.com/175762_83cf2d7b322c4c63bf9ba2487b79e77e.html
+https://rpubs.com/Daria/57835
+https://www.kaggle.com/umutozdemir/comparison-of-different-regression-models
+https://www.kaggle.com/vishalyo990/prediction-of-quality-of-wine
+https://www.kaggle.com/grosvenpaul/beginners-guide-to-eda-and-random-forest-using-r
+https://www.kaggle.com/meepbobeep/intro-to-regression-and-classification-in-r
+https://www.kaggle.com/aleixdorca/keras-caret-with-the-wine-dataset
+https://www.kaggle.com/uciml/red-wine-quality-cortez-et-al-2009/kernels
